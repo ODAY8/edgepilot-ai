@@ -63,6 +63,19 @@ export default function Dashboard() {
     }
   };
 
+  const handleLiveIncidentCreated = () => {
+    // A live-camera frame just created a real incident -- refresh stats and
+    // the incident list so the dashboard reflects it without a page reload.
+    Promise.all([getDashboardStats(), getIncidents()])
+      .then(([s, i]) => {
+        setStats(s);
+        setIncidents(i);
+      })
+      .catch(() => {
+        // Non-critical background refresh; the next manual load/retry will catch up.
+      });
+  };
+
   if (error) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
@@ -141,7 +154,7 @@ export default function Dashboard() {
               Camera / Edge Input
             </p>
           </div>
-          <CameraPanel cameraId={primaryIncident?.cameraId} edgeNode={primaryIncident?.edgeNode} />
+          <CameraPanel onIncidentCreated={handleLiveIncidentCreated} />
         </div>
         <div className="space-y-2 xl:col-span-2">
           <div className="flex items-center justify-between px-1">

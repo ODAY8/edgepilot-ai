@@ -121,6 +121,32 @@ export async function analyzeInput(file: File): Promise<AnalysisResult> {
   };
 }
 
+export interface LiveFrameResult {
+  incidentCreated: boolean;
+  status: "NORMAL" | "COOLDOWN" | "CREATED";
+  event: { type: string; label: string; confidence: number };
+  risk: { level: RiskLevel; score: number };
+  incidentId: string | null;
+  analysis: { summary: string; explanation: string } | null;
+  recommendation: { action: string; priority: string } | null;
+}
+
+// Sends one captured frame from a live browser camera to the backend.
+// The backend itself decides whether this frame warrants an incident
+// (see routes/live.py) -- normal frames and cooldown-deduped repeats
+// come back with incidentCreated: false and no Groq call was made.
+export async function analyzeFrame(frame: Blob, cameraId?: string, location?: string): Promise<LiveFrameResult> {
+  const form = new FormData();
+  form.append("file", frame, "frame.jpg");
+  if (cameraId) form.append("camera_id", cameraId);
+  if (location) form.append("location", location);
+
+  return apiFetch<LiveFrameResult>("/api/analyze-frame", {
+    method: "POST",
+    body: form,
+  });
+}
+
 export interface AnalyticsData {
   eventsOverTime: TimelinePoint[];
   riskDistribution: RiskDistributionPoint[];

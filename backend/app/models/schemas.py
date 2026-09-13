@@ -52,6 +52,21 @@ class AnalyzeResponse(BaseModel):
     recommendation: RecommendationInfo
 
 
+# --- /api/analyze-frame (live browser camera) ----------------------------
+
+FrameStatus = Literal["NORMAL", "COOLDOWN", "CREATED"]
+
+
+class LiveFrameResponse(BaseModel):
+    incidentCreated: bool
+    status: FrameStatus
+    event: EventInfo
+    risk: RiskInfo
+    incidentId: str | None = None
+    analysis: AnalysisInfo | None = None
+    recommendation: RecommendationInfo | None = None
+
+
 # --- /api/incidents -----------------------------------------------------
 
 

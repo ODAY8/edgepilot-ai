@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.database.database import init_db
-from app.routes import analysis, analytics, dashboard, health, incidents
+from app.routes import analysis, analytics, dashboard, health, incidents, live
 from app.services import llm, vision
 
 logging.basicConfig(
@@ -47,6 +47,7 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api", tags=["Health"])
 app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
+app.include_router(live.router, prefix="/api", tags=["Live"])
 app.include_router(incidents.router, prefix="/api", tags=["Incidents"])
 app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 app.include_router(analytics.router, prefix="/api", tags=["Analytics"])
