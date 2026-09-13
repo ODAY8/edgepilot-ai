@@ -4,7 +4,10 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.database import database
 from app.models.schemas import AnalysisInfo, AnalyzeResponse, EventInfo, RecommendationInfo, RiskInfo
-from app.services import llm, reasoning, recommendations, risk, vision
+from app.services import llm, reasoning, recommendations, risk
+from app.services import vision as vision_service
+from app.services.frame_extraction import FrameExtractionError, extract_frame
+from app.services.vision import VisionUnavailableError
 
 logger = logging.getLogger("edgepilot.analysis")
 
@@ -28,8 +31,24 @@ async def analyze(
 
     logger.info("Analyzing upload: %s (%s, %d bytes)", file.filename, file.content_type, len(contents))
 
+    # Vision models take a still image, so a video upload first gets reduced
+    # to one representative frame; images are analyzed as-is.
+    if file.content_type.startswith("video/"):
+        try:
+            image_bytes = extract_frame(contents)
+        except FrameExtractionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        image_mime = "image/jpeg"
+    else:
+        image_bytes = contents
+        image_mime = file.content_type
+
     try:
-        detection = vision.detect_event(file.filename, file.content_type)
+        detection = vision_service.detect_event(image_bytes, image_mime)
+    except VisionUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    try:
         risk_assessment = risk.assess_risk(detection)
 
         llm_result = llm.generate_reasoning(detection, risk_assessment, location)

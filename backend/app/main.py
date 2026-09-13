@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.database.database import init_db
 from app.routes import analysis, analytics, dashboard, health, incidents
-from app.services import llm
+from app.services import llm, vision
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -21,6 +21,10 @@ logger = logging.getLogger("edgepilot")
 async def lifespan(app: FastAPI):
     init_db()
     logger.info("EdgePilot AI API starting up (db=%s)", os.getenv("DATABASE_PATH", "<default>"))
+    logger.info(
+        "Vision analysis (Gemini): %s",
+        "enabled" if vision.is_configured() else "DISABLED -- /api/analyze will return 503 until GEMINI_API_KEY is set",
+    )
     logger.info(
         "Groq reasoning: %s",
         "enabled" if llm.is_configured() else "disabled (falling back to template reasoning) -- set GROQ_API_KEY to enable",

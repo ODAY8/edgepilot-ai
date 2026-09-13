@@ -3,3 +3,5 @@ uvicorn[standard]>=0.32
 pydantic>=2.9
 python-multipart>=0.0.12
 groq>=0.11
+google-genai>=1.0
+opencv-python-headless>=4.10
