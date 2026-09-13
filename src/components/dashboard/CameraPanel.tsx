@@ -15,6 +15,7 @@ interface CameraPanelProps {
   location?: string;
   onIncidentCreated?: (incidentId: string) => void;
   onFrameResult?: (result: LiveFrameResult | null) => void;
+  onVisionError?: (message: string | null) => void;
 }
 
 export default function CameraPanel({
@@ -23,11 +24,16 @@ export default function CameraPanel({
   location,
   onIncidentCreated,
   onFrameResult,
+  onVisionError,
 }: CameraPanelProps) {
   const [status, setStatus] = useState<CameraStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
   const [lastResult, setLastResult] = useState<LiveFrameResult | null>(null);
+  // Tracks the latest live-analysis failure separately from lastResult, so a
+  // failed frame can never be misrepresented as "All Clear" (lastResult
+  // simply wouldn't update on failure otherwise, silently going stale).
+  const [visionError, setVisionError] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -36,6 +42,8 @@ export default function CameraPanel({
   const isAnalyzingRef = useRef(false);
   const onFrameResultRef = useRef(onFrameResult);
   onFrameResultRef.current = onFrameResult;
+  const onVisionErrorRef = useRef(onVisionError);
+  onVisionErrorRef.current = onVisionError;
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -54,6 +62,8 @@ export default function CameraPanel({
     setStatus("idle");
     setLastResult(null);
     onFrameResultRef.current?.(null);
+    setVisionError(null);
+    onVisionErrorRef.current?.(null);
   }, []);
 
   // Never leave the webcam LED on if the operator navigates away.
@@ -77,15 +87,24 @@ export default function CameraPanel({
         isAnalyzingRef.current = true;
         try {
           const result = await analyzeFrame(blob, cameraId, location);
+          setVisionError(null);
+          onVisionErrorRef.current?.(null);
           setLastResult(result);
           onFrameResultRef.current?.(result);
           if (result.incidentCreated && result.incidentId) {
             onIncidentCreated?.(result.incidentId);
           }
-        } catch {
+        } catch (err) {
           // A single failed frame (e.g. a transient network hiccup or the
           // backend briefly unreachable) shouldn't stop live monitoring --
-          // the next capture tick just tries again.
+          // the next capture tick still runs on schedule. But the failure
+          // must be visible: silently keeping the old lastResult around
+          // would let a stale "All Clear" (or a stale incident) linger as
+          // if it still reflected the current frame, when really nothing
+          // was analyzed at all.
+          const message = err instanceof Error ? err.message : "Unable to reach the vision analysis service.";
+          setVisionError(message);
+          onVisionErrorRef.current?.(message);
         } finally {
           isAnalyzingRef.current = false;
         }
@@ -203,8 +222,22 @@ export default function CameraPanel({
         </div>
       )}
 
+      {/* Degraded-vision badge takes priority over any stale detection badge --
+          a failed frame means we don't actually know the current state, so a
+          leftover "Restricted Area Entry" badge from before the failure
+          would be just as misleading as showing stale "All Clear" would be. */}
+      {isLive && visionError && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute left-1/2 top-14 -translate-x-1/2 rounded-full border border-warn/40 bg-warn/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-black shadow-[0_0_16px_rgba(251,191,36,0.5)]"
+        >
+          Vision Unavailable
+        </motion.div>
+      )}
+
       {/* Live detection badge -- only ever reflects a real analyzeFrame result */}
-      {isLive && lastResult && lastResult.status !== "NORMAL" && (
+      {isLive && !visionError && lastResult && lastResult.status !== "NORMAL" && (
         <motion.div
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}

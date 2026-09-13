@@ -7,6 +7,7 @@ import EventTimeline from "@/components/dashboard/EventTimeline";
 import IncidentCard from "@/components/dashboard/IncidentCard";
 import MonitoringState from "@/components/dashboard/MonitoringState";
 import StatCard from "@/components/dashboard/StatCard";
+import VisionDegradedState from "@/components/dashboard/VisionDegradedState";
 import IncidentDetail from "@/components/incidents/IncidentDetail";
 import StatusIndicator from "@/components/common/StatusIndicator";
 import Modal from "@/components/common/Modal";
@@ -21,6 +22,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Incident | null>(null);
   const [liveFrame, setLiveFrame] = useState<LiveFrameResult | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const load = () => {
     let mounted = true;
@@ -51,6 +53,11 @@ export default function Dashboard() {
   // of leaving whatever incident was last active looking like it's still
   // the current situation. Historical incidents are untouched either way.
   const showLiveMonitoring = liveFrame?.status === "NORMAL";
+  // A failed live-analysis request takes priority over both the above and
+  // the default incident display: a failure means the current state is
+  // genuinely unknown, so neither "All Clear" nor a possibly-stale
+  // incident should be presented as if they reflect the latest frame.
+  const showLiveError = liveError !== null;
 
   const handleAcknowledge = async (id: string) => {
     try {
@@ -161,7 +168,11 @@ export default function Dashboard() {
               Camera / Edge Input
             </p>
           </div>
-          <CameraPanel onIncidentCreated={handleLiveIncidentCreated} onFrameResult={setLiveFrame} />
+          <CameraPanel
+            onIncidentCreated={handleLiveIncidentCreated}
+            onFrameResult={setLiveFrame}
+            onVisionError={setLiveError}
+          />
         </div>
         <div className="space-y-2 xl:col-span-2">
           <div className="flex items-center justify-between px-1">
@@ -169,7 +180,9 @@ export default function Dashboard() {
               Current Incident
             </p>
           </div>
-          {showLiveMonitoring ? (
+          {showLiveError ? (
+            <VisionDegradedState message={liveError} />
+          ) : showLiveMonitoring ? (
             <MonitoringState />
           ) : (
             primaryIncident && (
@@ -183,7 +196,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {!showLiveMonitoring && primaryIncident && <AIAnalysisCard incident={primaryIncident} />}
+      {!showLiveError && !showLiveMonitoring && primaryIncident && <AIAnalysisCard incident={primaryIncident} />}
 
       <EventTimeline incidents={incidents.slice(0, 6)} onSelect={setSelected} />
 
