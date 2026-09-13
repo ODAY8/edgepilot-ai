@@ -42,16 +42,56 @@ _EVENT_TYPES = (
 
 _client = genai.Client(api_key=_GEMINI_API_KEY) if _GEMINI_API_KEY else None
 
+# Minimum reported confidence for a non-normal classification to be trusted
+# even when the model claims evidence_visible=true. Guards against a model
+# that's technically "confident" but for the wrong reasons.
+_MIN_EVENT_CONFIDENCE = 0.6
+
 _SYSTEM_PROMPT = (
     "You are the vision analysis engine inside EdgePilot AI, an industrial "
     "safety monitoring system. Analyze the provided image/frame from a "
-    "security camera and identify any safety-relevant event.\n\n"
+    "security camera and determine whether it shows clear, unambiguous, "
+    "directly visible evidence of a specific safety event.\n\n"
+    "Default to normal_activity unless the image contains direct, "
+    "unmistakable visual evidence of one of the other event types below. "
+    "Do NOT infer, assume, or invent anything that is not actually visible "
+    "in the image -- including restricted-area markings, hazard signage, "
+    "PPE requirements, forklifts, or industrial/workplace context. An "
+    "ordinary room, office, or a person sitting or standing with no visible "
+    "signage, barrier, or hazard is normal_activity, even if the space "
+    "could plausibly be a workplace. When in doubt, choose normal_activity.\n\n"
+    "Event types and the evidence each one strictly requires:\n"
+    "- restricted_area_entry: ONLY if you can clearly see BOTH (a) a "
+    "marked or signed restricted/controlled area -- a barrier, sign, "
+    "painted boundary line, or warning tape -- AND (b) a person inside or "
+    "entering that specific marked area. A person in an ordinary, "
+    "unmarked room or space is NOT this event, no matter how confident "
+    "it might otherwise seem.\n"
+    "- forklift_near_miss: ONLY if an actual forklift is visible in the "
+    "image AND its position or movement relative to a person is clearly "
+    "hazardous. No visible forklift means this can never apply.\n"
+    "- ppe_violation: ONLY if the specific PPE requirement for that "
+    "location is visually evident (e.g. a visible hard-hat-required sign, "
+    "or visible active machinery that plainly calls for protection) AND a "
+    "person is visibly missing that required PPE. Do not assume PPE is "
+    "required just because a space looks industrial or work-related.\n"
+    "- unattended_object: ONLY if an object is clearly isolated, visibly "
+    "out of place, and left with no person nearby.\n"
+    "- normal_activity: any ordinary scene, or any scene where the "
+    "evidence required above is not clearly and directly visible.\n\n"
     "Respond with ONLY a JSON object with exactly these keys:\n"
     f'"event_type" -- must be exactly one of: {", ".join(_EVENT_TYPES)}\n'
-    '"confidence" -- your confidence in this classification, a float between 0 and 1\n'
-    '"context" -- a factual 1-2 sentence description of exactly what you observe '
-    "in the image that led to this classification. Do not speculate beyond what "
-    "is visibly in the image."
+    '"evidence_visible" -- true ONLY if you can point to the specific, '
+    "directly visible evidence required above for a non-normal_activity "
+    "classification; false if you are inferring, assuming, guessing, or "
+    "the scene is ambiguous. Always true for normal_activity.\n"
+    '"confidence" -- your confidence in this classification, a float '
+    "between 0 and 1, reflecting only what is visibly evident -- never "
+    "inflate this to express certainty about something assumed rather "
+    "than seen.\n"
+    '"context" -- a factual 1-2 sentence description of exactly what you '
+    "observe in the image. Do not speculate beyond what is visibly in "
+    "the image."
 )
 
 _LABELS: dict[str, str] = {
@@ -105,12 +145,27 @@ def detect_event(image_bytes: bytes, mime_type: str) -> Detection:
             event_type = "normal_activity"
 
         confidence = max(0.0, min(1.0, float(data["confidence"])))
+        context = str(data["context"])
+
+        # Code-level backstop, not just prompt wording: a non-normal
+        # classification is only trusted if the model itself confirms
+        # clearly visible evidence AND reports meaningful confidence in it.
+        # This is what actually prevents false positives (e.g. an ordinary
+        # room misread as a restricted area) even if the model's own
+        # judgment drifts on a given call.
+        evidence_visible = bool(data.get("evidence_visible", True))
+        if event_type != "normal_activity" and (not evidence_visible or confidence < _MIN_EVENT_CONFIDENCE):
+            logger.info(
+                "Downgrading %s to normal_activity: evidence_visible=%s confidence=%.2f",
+                event_type, evidence_visible, confidence,
+            )
+            event_type = "normal_activity"
 
         return Detection(
             type=event_type,
             label=_LABELS[event_type],
             confidence=confidence,
-            context=str(data["context"]),
+            context=context,
         )
     except Exception as exc:
         logger.exception("Gemini vision call failed.")
