@@ -14,6 +14,7 @@ interface CameraPanelProps {
   edgeNode?: string;
   location?: string;
   onIncidentCreated?: (incidentId: string) => void;
+  onFrameResult?: (result: LiveFrameResult | null) => void;
 }
 
 export default function CameraPanel({
@@ -21,6 +22,7 @@ export default function CameraPanel({
   edgeNode = "BROWSER EDGE NODE",
   location,
   onIncidentCreated,
+  onFrameResult,
 }: CameraPanelProps) {
   const [status, setStatus] = useState<CameraStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -32,6 +34,8 @@ export default function CameraPanel({
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isAnalyzingRef = useRef(false);
+  const onFrameResultRef = useRef(onFrameResult);
+  onFrameResultRef.current = onFrameResult;
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -49,6 +53,7 @@ export default function CameraPanel({
     isAnalyzingRef.current = false;
     setStatus("idle");
     setLastResult(null);
+    onFrameResultRef.current?.(null);
   }, []);
 
   // Never leave the webcam LED on if the operator navigates away.
@@ -73,6 +78,7 @@ export default function CameraPanel({
         try {
           const result = await analyzeFrame(blob, cameraId, location);
           setLastResult(result);
+          onFrameResultRef.current?.(result);
           if (result.incidentCreated && result.incidentId) {
             onIncidentCreated?.(result.incidentId);
           }

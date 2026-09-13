@@ -5,12 +5,13 @@ import AIAnalysisCard from "@/components/dashboard/AIAnalysisCard";
 import CameraPanel from "@/components/dashboard/CameraPanel";
 import EventTimeline from "@/components/dashboard/EventTimeline";
 import IncidentCard from "@/components/dashboard/IncidentCard";
+import MonitoringState from "@/components/dashboard/MonitoringState";
 import StatCard from "@/components/dashboard/StatCard";
 import IncidentDetail from "@/components/incidents/IncidentDetail";
 import StatusIndicator from "@/components/common/StatusIndicator";
 import Modal from "@/components/common/Modal";
 import ErrorState from "@/components/common/ErrorState";
-import { acknowledgeIncident, escalateIncident, getDashboardStats, getIncidents } from "@/services/api";
+import { acknowledgeIncident, escalateIncident, getDashboardStats, getIncidents, type LiveFrameResult } from "@/services/api";
 import type { DashboardStats, Incident } from "@/data/types";
 
 export default function Dashboard() {
@@ -19,6 +20,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Incident | null>(null);
+  const [liveFrame, setLiveFrame] = useState<LiveFrameResult | null>(null);
 
   const load = () => {
     let mounted = true;
@@ -44,6 +46,11 @@ export default function Dashboard() {
   useEffect(load, []);
 
   const primaryIncident = incidents.find((i) => i.status === "ACTIVE") ?? incidents[0];
+  // While the live camera's most recent frame is normal_activity, the
+  // camera panel already told us so via onFrameResult -- show that instead
+  // of leaving whatever incident was last active looking like it's still
+  // the current situation. Historical incidents are untouched either way.
+  const showLiveMonitoring = liveFrame?.status === "NORMAL";
 
   const handleAcknowledge = async (id: string) => {
     try {
@@ -154,7 +161,7 @@ export default function Dashboard() {
               Camera / Edge Input
             </p>
           </div>
-          <CameraPanel onIncidentCreated={handleLiveIncidentCreated} />
+          <CameraPanel onIncidentCreated={handleLiveIncidentCreated} onFrameResult={setLiveFrame} />
         </div>
         <div className="space-y-2 xl:col-span-2">
           <div className="flex items-center justify-between px-1">
@@ -162,17 +169,21 @@ export default function Dashboard() {
               Current Incident
             </p>
           </div>
-          {primaryIncident && (
-            <IncidentCard
-              incident={primaryIncident}
-              onAcknowledge={handleAcknowledge}
-              onEscalate={handleEscalate}
-            />
+          {showLiveMonitoring ? (
+            <MonitoringState />
+          ) : (
+            primaryIncident && (
+              <IncidentCard
+                incident={primaryIncident}
+                onAcknowledge={handleAcknowledge}
+                onEscalate={handleEscalate}
+              />
+            )
           )}
         </div>
       </div>
 
-      {primaryIncident && <AIAnalysisCard incident={primaryIncident} />}
+      {!showLiveMonitoring && primaryIncident && <AIAnalysisCard incident={primaryIncident} />}
 
       <EventTimeline incidents={incidents.slice(0, 6)} onSelect={setSelected} />
 
