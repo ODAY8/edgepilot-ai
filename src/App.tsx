@@ -1,12 +1,14 @@
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import Layout from "@/components/layout/Layout";
+import { importWithReload } from "@/lazyImport";
 
-const Landing = lazy(() => import("@/pages/Landing"));
-const Dashboard = lazy(() => import("@/pages/Dashboard"));
-const Analyze = lazy(() => import("@/pages/Analyze"));
-const Incidents = lazy(() => import("@/pages/Incidents"));
-const Analytics = lazy(() => import("@/pages/Analytics"));
+const Landing = lazy(() => importWithReload(() => import("@/pages/Landing")));
+const Dashboard = lazy(() => importWithReload(() => import("@/pages/Dashboard")));
+const Analyze = lazy(() => importWithReload(() => import("@/pages/Analyze")));
+const Incidents = lazy(() => importWithReload(() => import("@/pages/Incidents")));
+const Analytics = lazy(() => importWithReload(() => import("@/pages/Analytics")));
+const Settings = lazy(() => importWithReload(() => import("@/pages/Settings")));
 
 function PageFallback() {
   return (
@@ -27,6 +29,7 @@ export default function App() {
             <Route path="/analyze" element={<Analyze />} />
             <Route path="/incidents" element={<Incidents />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
