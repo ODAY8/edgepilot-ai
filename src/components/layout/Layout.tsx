@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import { useLocation, Outlet } from "react-router-dom";
+import ErrorBoundary from "@/components/common/ErrorBoundary";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 
@@ -20,6 +21,10 @@ const PAGE_META: Record<string, { title: string; description: string }> = {
   "/analytics": {
     title: "Analytics",
     description: "Trends and performance across your edge network",
+  },
+  "/settings": {
+    title: "Settings",
+    description: "System information and configuration status",
   },
 };
 
@@ -46,7 +51,13 @@ export default function Layout() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
             >
-              <Outlet />
+              {/* Keyed by pathname so navigating away from a crashed page and
+                  back remounts it fresh instead of staying stuck on the
+                  error fallback. A crash here is scoped to the page content
+                  only -- the sidebar and top bar above stay usable. */}
+              <ErrorBoundary key={location.pathname}>
+                <Outlet />
+              </ErrorBoundary>
             </motion.div>
           </AnimatePresence>
         </main>

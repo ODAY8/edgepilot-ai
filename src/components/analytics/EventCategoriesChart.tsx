@@ -6,6 +6,14 @@ interface EventCategoriesChartProps {
 }
 
 export default function EventCategoriesChart({ data }: EventCategoriesChartProps) {
+  if (data.length === 0) {
+    return (
+      <div className="flex h-[240px] items-center justify-center text-sm text-ink-faint">
+        No event data available yet.
+      </div>
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height={240}>
       <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>

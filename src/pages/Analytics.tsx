@@ -38,15 +38,28 @@ export default function Analytics() {
   }
 
   const summary = [
-    { label: "Uptime", value: data.systemHealth.uptime, icon: HeartPulse, tone: "text-safe bg-safe/10" },
-    { label: "Avg Response Time", value: data.systemHealth.avgResponseTime, icon: Clock, tone: "text-accent bg-accent-soft" },
+    { label: "Uptime", value: data.systemHealth.uptime || "N/A", icon: HeartPulse, tone: "text-safe bg-safe/10" },
+    {
+      label: "Avg Response Time",
+      value: data.systemHealth.avgResponseTime || "N/A",
+      icon: Clock,
+      tone: "text-accent bg-accent-soft",
+    },
     {
       label: "Edge Nodes Online",
-      value: `${data.systemHealth.edgeNodesOnline}/${data.systemHealth.edgeNodesTotal}`,
+      value:
+        data.systemHealth.edgeNodesOnline != null && data.systemHealth.edgeNodesTotal != null
+          ? `${data.systemHealth.edgeNodesOnline}/${data.systemHealth.edgeNodesTotal}`
+          : "N/A",
       icon: Server,
       tone: "text-accent bg-accent-soft",
     },
-    { label: "Events (24h)", value: data.eventsOverTime.reduce((s, p) => s + p.events, 0), icon: Activity, tone: "text-accent-2 bg-accent-soft" },
+    {
+      label: "Events (24h)",
+      value: data.eventsOverTime.reduce((s, p) => s + (p.events ?? 0), 0),
+      icon: Activity,
+      tone: "text-accent-2 bg-accent-soft",
+    },
   ];
 
   return (
