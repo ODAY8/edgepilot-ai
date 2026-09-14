@@ -19,6 +19,11 @@ const NORMAL_RESULT: LiveFrameResult = {
   incidentId: null,
   analysis: null,
   recommendation: null,
+  objects: [
+    { name: "person", confidence: 0.98, context: "seated at a workstation" },
+    { name: "laptop", confidence: 0.97, context: "on the desk" },
+  ],
+  sceneDescription: "Person seated at a workstation using a laptop.",
 };
 
 const MEANINGFUL_RESULT: LiveFrameResult = {
@@ -29,6 +34,8 @@ const MEANINGFUL_RESULT: LiveFrameResult = {
   incidentId: "INC-TEST",
   analysis: { summary: "s", explanation: "e" },
   recommendation: { action: "a", priority: "HIGH" },
+  objects: [{ name: "person", confidence: 0.99, context: "missing hard hat" }],
+  sceneDescription: "Person working without required head protection.",
 };
 
 function mockGetUserMedia() {
@@ -75,6 +82,20 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+describe("CameraPanel camera constraints", () => {
+  it("requests a 1280x720-ideal environment-facing camera stream", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { container } = render(<CameraPanel />);
+
+    await startCamera(container, user);
+
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "environment" },
+      audio: false,
+    });
+  });
 });
 
 describe("CameraPanel vision-failure handling", () => {
@@ -166,5 +187,70 @@ describe("CameraPanel vision-failure handling", () => {
     await advanceOneCaptureCycle();
 
     expect(mockAnalyzeFrame).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("CameraPanel scene understanding panel", () => {
+  it("shows detected objects and scene description alongside a normal frame", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mockAnalyzeFrame.mockResolvedValueOnce(NORMAL_RESULT);
+
+    const { container } = render(<CameraPanel />);
+    await startCamera(container, user);
+    await advanceOneCaptureCycle();
+
+    expect(await screen.findByText("Detected Objects")).toBeInTheDocument();
+    expect(screen.getByText(/person · 98%/i)).toBeInTheDocument();
+    expect(screen.getByText(/laptop · 97%/i)).toBeInTheDocument();
+    expect(screen.getByText("Person seated at a workstation using a laptop.")).toBeInTheDocument();
+    // Safety status itself isn't duplicated in this panel -- it's already
+    // shown elsewhere on the dashboard (Current Incident / All Clear).
+    expect(screen.queryByText(/all clear/i)).not.toBeInTheDocument();
+  });
+
+  it("still shows detected objects and scene when a safety event is created", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mockAnalyzeFrame.mockResolvedValueOnce(MEANINGFUL_RESULT);
+
+    const { container } = render(<CameraPanel />);
+    await startCamera(container, user);
+    await advanceOneCaptureCycle();
+
+    expect(await screen.findByText("Detected Objects")).toBeInTheDocument();
+    expect(screen.getByText(/person · 99%/i)).toBeInTheDocument();
+    expect(screen.getByText("Person working without required head protection.")).toBeInTheDocument();
+    // The existing detection badge behavior is untouched.
+    expect(screen.getByText(/PPE Violation/i)).toBeInTheDocument();
+  });
+
+  it("hides the scene panel while vision is unavailable", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mockAnalyzeFrame.mockResolvedValueOnce(NORMAL_RESULT).mockRejectedValueOnce(new Error("boom"));
+
+    const { container } = render(<CameraPanel />);
+    await startCamera(container, user);
+    await advanceOneCaptureCycle();
+    expect(await screen.findByText("Detected Objects")).toBeInTheDocument();
+
+    await advanceOneCaptureCycle();
+    expect(screen.getByText(/vision unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText("Detected Objects")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing extra when there are no objects and no scene description", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mockAnalyzeFrame.mockResolvedValueOnce({
+      ...NORMAL_RESULT,
+      objects: [],
+      sceneDescription: "",
+    });
+
+    const { container } = render(<CameraPanel />);
+    await startCamera(container, user);
+    await advanceOneCaptureCycle();
+
+    await waitFor(() => expect(mockAnalyzeFrame).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Detected Objects")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scene")).not.toBeInTheDocument();
   });
 });

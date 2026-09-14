@@ -13,7 +13,14 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.database import database
-from app.models.schemas import AnalysisInfo, EventInfo, LiveFrameResponse, RecommendationInfo, RiskInfo
+from app.models.schemas import (
+    AnalysisInfo,
+    DetectedObjectInfo,
+    EventInfo,
+    LiveFrameResponse,
+    RecommendationInfo,
+    RiskInfo,
+)
 from app.services import dedup, llm, reasoning, recommendations, risk
 from app.services import vision as vision_service
 from app.services.vision import VisionUnavailableError
@@ -51,12 +58,19 @@ async def analyze_frame(
         risk_assessment = risk.assess_risk(detection)
         event_info = EventInfo(type=detection.type, label=detection.label, confidence=detection.confidence)
         risk_info = RiskInfo(level=risk_assessment.level, score=risk_assessment.score)
+        # Object recognition runs on every frame regardless of the safety
+        # outcome, so it's attached to every response path below the same way.
+        objects_info = [DetectedObjectInfo(name=o.name, confidence=o.confidence, context=o.context) for o in detection.objects]
+        scene_description = detection.scene_description
 
         # Nothing worth reasoning about -- most frames land here. No Groq
         # call, no incident, no log spam.
         if detection.type == "normal_activity":
             logger.debug("Live frame: normal_activity on %s, no incident.", resolved_camera_id)
-            return LiveFrameResponse(incidentCreated=False, status="NORMAL", event=event_info, risk=risk_info)
+            return LiveFrameResponse(
+                incidentCreated=False, status="NORMAL", event=event_info, risk=risk_info,
+                objects=objects_info, sceneDescription=scene_description,
+            )
 
         # A meaningful event, but the same one is already being tracked for
         # this camera -- don't create a duplicate incident or call Groq again.
@@ -64,7 +78,10 @@ async def analyze_frame(
             logger.debug(
                 "Live frame: %s on %s within cooldown, skipping incident.", detection.type, resolved_camera_id
             )
-            return LiveFrameResponse(incidentCreated=False, status="COOLDOWN", event=event_info, risk=risk_info)
+            return LiveFrameResponse(
+                incidentCreated=False, status="COOLDOWN", event=event_info, risk=risk_info,
+                objects=objects_info, sceneDescription=scene_description,
+            )
 
         # Only this path -- a genuinely new, meaningful event -- calls Groq.
         llm_result = llm.generate_reasoning(detection, risk_assessment, location)
@@ -108,4 +125,6 @@ async def analyze_frame(
         incidentId=incident["id"],
         analysis=AnalysisInfo(summary=summary, explanation=explanation),
         recommendation=RecommendationInfo(action=action, priority=priority),
+        objects=objects_info,
+        sceneDescription=scene_description,
     )

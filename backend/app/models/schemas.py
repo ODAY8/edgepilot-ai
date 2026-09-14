@@ -44,12 +44,21 @@ class RecommendationInfo(BaseModel):
     priority: Priority
 
 
+class DetectedObjectInfo(BaseModel):
+    name: str
+    confidence: float
+    context: str
+
+
 class AnalyzeResponse(BaseModel):
     id: str
     event: EventInfo
     risk: RiskInfo
     analysis: AnalysisInfo
     recommendation: RecommendationInfo
+    # General scene understanding -- independent of the safety event above.
+    objects: list[DetectedObjectInfo] = []
+    sceneDescription: str = ""
 
 
 # --- /api/analyze-frame (live browser camera) ----------------------------
@@ -65,6 +74,10 @@ class LiveFrameResponse(BaseModel):
     incidentId: str | None = None
     analysis: AnalysisInfo | None = None
     recommendation: RecommendationInfo | None = None
+    # Populated on every response regardless of status -- object recognition
+    # runs on every frame independent of whether a safety event was found.
+    objects: list[DetectedObjectInfo] = []
+    sceneDescription: str = ""
 
 
 # --- /api/incidents -----------------------------------------------------

@@ -118,7 +118,10 @@ export default function CameraPanel({
     setErrorMessage(null);
     setStatus("requesting");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "environment" },
+        audio: false,
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -141,8 +144,13 @@ export default function CameraPanel({
 
   const timestamp = now.toLocaleTimeString("en-US", { hour12: false });
   const isLive = status === "live";
+  const sceneInfo =
+    isLive && !visionError && lastResult && (lastResult.objects.length > 0 || lastResult.sceneDescription !== "")
+      ? lastResult
+      : null;
 
   return (
+    <div className="flex flex-col gap-3">
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-[#05060a]">
       <canvas ref={canvasRef} className="hidden" />
 
@@ -287,6 +295,37 @@ export default function CameraPanel({
           )}
         </div>
       </div>
+    </div>
+
+      {/* Scene understanding -- independent of the safety status shown
+          elsewhere on the dashboard (Current Incident / All Clear /
+          Vision Unavailable). Deliberately doesn't repeat that status
+          here to avoid duplicating it in two places on the page. */}
+      {sceneInfo && (
+        <div className="rounded-2xl border border-border bg-surface p-4">
+          {sceneInfo.objects.length > 0 && (
+            <div className={sceneInfo.sceneDescription ? "mb-3" : ""}>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">Detected Objects</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {sceneInfo.objects.map((obj, i) => (
+                  <span
+                    key={i}
+                    className="rounded-full border border-border-soft bg-surface-2 px-2.5 py-1 text-xs capitalize text-ink-dim"
+                  >
+                    {obj.name} · {Math.round(obj.confidence * 100)}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {sceneInfo.sceneDescription && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">Scene</p>
+              <p className="mt-1 text-sm text-ink-dim">{sceneInfo.sceneDescription}</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

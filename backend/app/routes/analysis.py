@@ -3,7 +3,14 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.database import database
-from app.models.schemas import AnalysisInfo, AnalyzeResponse, EventInfo, RecommendationInfo, RiskInfo
+from app.models.schemas import (
+    AnalysisInfo,
+    AnalyzeResponse,
+    DetectedObjectInfo,
+    EventInfo,
+    RecommendationInfo,
+    RiskInfo,
+)
 from app.services import llm, reasoning, recommendations, risk
 from app.services import vision as vision_service
 from app.services.frame_extraction import FrameExtractionError, extract_frame
@@ -87,4 +94,6 @@ async def analyze(
         risk=RiskInfo(level=risk_assessment.level, score=risk_assessment.score),
         analysis=AnalysisInfo(summary=summary, explanation=explanation),
         recommendation=RecommendationInfo(action=action, priority=priority),
+        objects=[DetectedObjectInfo(name=o.name, confidence=o.confidence, context=o.context) for o in detection.objects],
+        sceneDescription=detection.scene_description,
     )

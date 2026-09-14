@@ -121,6 +121,12 @@ export async function analyzeInput(file: File): Promise<AnalysisResult> {
   };
 }
 
+export interface DetectedObjectResult {
+  name: string;
+  confidence: number;
+  context: string;
+}
+
 export interface LiveFrameResult {
   incidentCreated: boolean;
   status: "NORMAL" | "COOLDOWN" | "CREATED";
@@ -129,6 +135,10 @@ export interface LiveFrameResult {
   incidentId: string | null;
   analysis: { summary: string; explanation: string } | null;
   recommendation: { action: string; priority: string } | null;
+  // General scene understanding -- independent of the safety event above.
+  // Populated on every frame regardless of status.
+  objects: DetectedObjectResult[];
+  sceneDescription: string;
 }
 
 // Sends one captured frame from a live browser camera to the backend.
