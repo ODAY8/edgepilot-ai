@@ -1,9 +1,29 @@
-"""SQLite persistence for incidents.
+"""SQLite/PostgreSQL persistence for incidents.
 
-A thin wrapper around the standard-library `sqlite3` module -- no ORM.
-Keeps schema, seed data, and queries in one place so the storage layer
-can be swapped out (e.g. for Postgres) later without touching the
-routes that call into it.
+A thin wrapper -- no ORM -- around either the standard-library `sqlite3`
+module or `psycopg` (PostgreSQL/Supabase), selected once at import time:
+
+    DATABASE_URL set      -> PostgreSQL (e.g. a Supabase connection string)
+    DATABASE_URL not set  -> SQLite at DATABASE_PATH (unchanged default)
+
+Every public function below (`init_db`, `list_incidents`, `get_incident`,
+`update_incident_status`, `insert_incident`, `compute_dashboard_stats`,
+`compute_analytics`) keeps its exact existing signature and return shape
+regardless of which backend is active -- callers in `app/routes/*.py`
+never know or care which database is behind them. `get_connection()` is
+the one seam that actually differs per backend; every query function
+above it is backend-agnostic because:
+
+  - SQLite's `sqlite3.Row` and PostgreSQL's `dict_row` factory both
+    support `row["column_name"]` access, so `_row_to_incident()` never
+    branches.
+  - Both `sqlite3.Connection.execute()` and `psycopg.Connection.execute()`
+    accept a query string plus a dict (named placeholders) or tuple
+    (positional placeholders) and return a cursor with the same
+    `fetchone()`/`fetchall()`/`rowcount` surface -- only the placeholder
+    *syntax* differs (`:name`/`?` for SQLite vs `%(name)s`/`%s` for
+    PostgreSQL), so only the SQL strings themselves are picked per
+    backend, once, at module load.
 """
 
 import os
@@ -12,9 +32,19 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
 DB_PATH = os.path.abspath(
     os.getenv("DATABASE_PATH", os.path.join(os.path.dirname(__file__), "..", "..", "edgepilot.db"))
 )
+
+# Read once at import time, exactly like GEMINI_API_KEY/GROQ_API_KEY in
+# services/vision.py and services/llm.py. Never logged or printed --
+# only whether it's set is ever surfaced (see backend_name() below).
+DATABASE_URL = os.getenv("DATABASE_URL")
+_USE_POSTGRES = bool(DATABASE_URL)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS incidents (
@@ -37,7 +67,10 @@ CREATE TABLE IF NOT EXISTS incidents (
 """
 
 # Mirrors src/data/mockData.ts so the API feels alive from the first run,
-# before any real analysis has been submitted.
+# before any real analysis has been submitted. Only ever seeded into a
+# fresh local SQLite fallback -- never auto-copied into PostgreSQL (a
+# real database is never silently populated with demo rows; see
+# init_db() below).
 _SEED_INCIDENTS: list[dict] = [
     dict(
         id="INC-001", event="Restricted Area Entry", risk="HIGH", confidence=94,
@@ -105,7 +138,7 @@ _SEED_INCIDENTS: list[dict] = [
     ),
 ]
 
-_INSERT_SQL = """
+_INSERT_SQL_SQLITE = """
 INSERT INTO incidents
     (id, event, risk, confidence, location, camera_id, edge_node,
      timestamp, date, explanation, recommendation, status, detection, context, created_at)
@@ -114,28 +147,106 @@ VALUES
      :timestamp, :date, :explanation, :recommendation, :status, :detection, :context, :created_at)
 """
 
+_INSERT_SQL_POSTGRES = """
+INSERT INTO incidents
+    (id, event, risk, confidence, location, camera_id, edge_node,
+     timestamp, date, explanation, recommendation, status, detection, context, created_at)
+VALUES
+    (%(id)s, %(event)s, %(risk)s, %(confidence)s, %(location)s, %(camera_id)s, %(edge_node)s,
+     %(timestamp)s, %(date)s, %(explanation)s, %(recommendation)s, %(status)s, %(detection)s, %(context)s, %(created_at)s)
+"""
+
+# Both variants take a dict of named params either way -- callers below
+# never need to know which one is active.
+_INSERT_SQL = _INSERT_SQL_POSTGRES if _USE_POSTGRES else _INSERT_SQL_SQLITE
+_SELECT_BY_ID_SQL = "SELECT * FROM incidents WHERE id = %s" if _USE_POSTGRES else "SELECT * FROM incidents WHERE id = ?"
+_UPDATE_STATUS_SQL = (
+    "UPDATE incidents SET status = %s WHERE id = %s" if _USE_POSTGRES else "UPDATE incidents SET status = ? WHERE id = ?"
+)
+
+# The pool is created once, during FastAPI's lifespan startup (see
+# init_pool()/close_pool() and app/main.py), and reused for every
+# request -- never opened per-call. None until init_pool() runs, and
+# only ever used when _USE_POSTGRES is True.
+_pool: ConnectionPool | None = None
+
+
+def is_using_postgres() -> bool:
+    return _USE_POSTGRES
+
+
+def backend_name() -> str:
+    """Safe for logging -- never includes DATABASE_URL or any credential."""
+    return "PostgreSQL" if _USE_POSTGRES else "SQLite"
+
+
+def init_pool() -> None:
+    """Opens the PostgreSQL connection pool. Called once from the FastAPI
+    lifespan on startup; a no-op when DATABASE_URL isn't set (SQLite needs
+    no pool -- each call already opens/closes its own lightweight
+    local-file connection, as it always has).
+
+    Deliberately opens eagerly (`open=False` then an explicit `.open()`)
+    and lets a failed connection raise here, at startup, rather than on
+    the first request -- a misconfigured DATABASE_URL should fail loudly
+    and immediately, the same way a missing GEMINI_API_KEY does.
+    """
+    global _pool
+    if not _USE_POSTGRES or _pool is not None:
+        return
+    _pool = ConnectionPool(conninfo=DATABASE_URL, min_size=1, max_size=5, open=False)
+    _pool.open(wait=True, timeout=10)
+
+
+def close_pool() -> None:
+    """Closes the PostgreSQL connection pool. Called once from the
+    FastAPI lifespan on shutdown; a no-op for SQLite or if never opened."""
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
 
 @contextmanager
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+    if _USE_POSTGRES:
+        if _pool is None:
+            raise RuntimeError("PostgreSQL pool is not initialized -- call init_pool() during app startup first.")
+        with _pool.connection() as conn:
+            conn.row_factory = dict_row
+            yield conn
+        # psycopg_pool's connection() context manager already commits on
+        # clean exit / rolls back on exception (see its docstring) and
+        # returns the connection to the pool -- nothing more to do here.
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def init_db() -> None:
     with get_connection() as conn:
         conn.execute(_SCHEMA)
+
+        if _USE_POSTGRES:
+            # Confirm the database can actually initialize correctly
+            # first; demo/seed rows are only ever written into a fresh
+            # local SQLite fallback, never auto-copied into a real
+            # database. Migrating real historical data (if ever wanted)
+            # is a deliberate, separate, explicit step -- not this one.
+            return
+
         count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
         if count == 0:
             now = datetime.now(timezone.utc).isoformat()
             conn.executemany(_INSERT_SQL, [{**row, "created_at": now} for row in _SEED_INCIDENTS])
 
 
-def _row_to_incident(row: sqlite3.Row) -> dict:
+def _row_to_incident(row) -> dict:
     return {
         "id": row["id"],
         "event": row["event"],
@@ -162,16 +273,16 @@ def list_incidents() -> list[dict]:
 
 def get_incident(incident_id: str) -> dict | None:
     with get_connection() as conn:
-        row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
+        row = conn.execute(_SELECT_BY_ID_SQL, (incident_id,)).fetchone()
     return _row_to_incident(row) if row else None
 
 
 def update_incident_status(incident_id: str, status: str) -> dict | None:
     with get_connection() as conn:
-        cur = conn.execute("UPDATE incidents SET status = ? WHERE id = ?", (status, incident_id))
+        cur = conn.execute(_UPDATE_STATUS_SQL, (status, incident_id))
         if cur.rowcount == 0:
             return None
-        row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
+        row = conn.execute(_SELECT_BY_ID_SQL, (incident_id,)).fetchone()
     return _row_to_incident(row)
 
 

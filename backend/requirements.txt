@@ -8,3 +8,9 @@ google-genai>=1.0
 opencv-python-headless>=4.10
 pytest>=8.0
 Pillow>=10.0
+psycopg[binary]>=3.1
+# psycopg's core package has no built-in connection pool -- pooling is a
+# separate, official companion package from the same project. Required
+# to satisfy "reuse a pool, never open a new connection per request"
+# for the PostgreSQL/Supabase backend in app/database/database.py.
+psycopg_pool>=3.1

@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 # whether each provider ends up configured (see the startup log below).
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
-from app.database.database import init_db  # noqa: E402
+from app.database import database  # noqa: E402
 from app.routes import analysis, analytics, dashboard, health, incidents, live, system  # noqa: E402
 from app.services import llm, vision  # noqa: E402
 
@@ -32,8 +32,15 @@ logger = logging.getLogger("edgepilot")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    logger.info("EdgePilot AI API starting up (db=%s)", os.getenv("DATABASE_PATH", "<default>"))
+    # For PostgreSQL, opens the connection pool once here (and only here --
+    # never per-request); a no-op for the SQLite fallback. A misconfigured
+    # DATABASE_URL fails loudly at startup rather than on the first
+    # request. Never logs DATABASE_URL or any credential -- only which
+    # backend ended up active.
+    database.init_pool()
+    database.init_db()
+    logger.info("EdgePilot AI API starting up")
+    logger.info("Database backend: %s", database.backend_name())
     logger.info(
         "Vision analysis (Gemini): %s",
         "enabled" if vision.is_configured() else "DISABLED -- /api/analyze will return 503 until GEMINI_API_KEY is set",
@@ -43,6 +50,7 @@ async def lifespan(app: FastAPI):
         "enabled" if llm.is_configured() else "disabled (falling back to template reasoning) -- set GROQ_API_KEY to enable",
     )
     yield
+    database.close_pool()
     logger.info("EdgePilot AI API shutting down")
 
 
