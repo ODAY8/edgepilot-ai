@@ -30,6 +30,10 @@ logger = logging.getLogger("edgepilot.live")
 router = APIRouter()
 
 _ALLOWED_PREFIXES = ("image/",)
+# A live frame is a single JPEG canvas capture from the browser -- never
+# legitimately large. Caps memory usage per request and rejects anything
+# clearly not a real captured frame.
+_MAX_FRAME_BYTES = 10 * 1024 * 1024
 
 
 @router.post("/analyze-frame", response_model=LiveFrameResponse, summary="Analyze one live camera frame")
@@ -41,7 +45,9 @@ async def analyze_frame(
     if not file.content_type or not file.content_type.startswith(_ALLOWED_PREFIXES):
         raise HTTPException(status_code=400, detail="Frame must be an image.")
 
-    contents = await file.read()
+    contents = await file.read(_MAX_FRAME_BYTES + 1)
+    if len(contents) > _MAX_FRAME_BYTES:
+        raise HTTPException(status_code=413, detail=f"Frame exceeds the {_MAX_FRAME_BYTES // (1024 * 1024)}MB limit.")
     if not contents:
         raise HTTPException(status_code=400, detail="Frame is empty.")
 

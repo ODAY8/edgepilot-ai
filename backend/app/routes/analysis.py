@@ -21,6 +21,11 @@ logger = logging.getLogger("edgepilot.analysis")
 router = APIRouter()
 
 _ALLOWED_PREFIXES = ("image/", "video/")
+# Matches the "Up to 500MB" limit already advertised in the upload UI
+# (UploadZone.tsx) -- previously unenforced, so any upload of any size was
+# read fully into memory. Reading one byte past the limit (instead of the
+# whole file first) caps memory usage even for a much larger upload.
+_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, summary="Analyze an uploaded image or video")
@@ -32,7 +37,9 @@ async def analyze(
     if not file.content_type or not file.content_type.startswith(_ALLOWED_PREFIXES):
         raise HTTPException(status_code=400, detail="File must be an image or video.")
 
-    contents = await file.read()
+    contents = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(contents) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)}MB upload limit.")
     if not contents:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
