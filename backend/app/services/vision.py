@@ -20,9 +20,13 @@ this project's vision layer only ever reports what a real model saw.
 import json
 import logging
 import os
+import random
+import time
 from dataclasses import dataclass, field
 
+import httpx
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 logger = logging.getLogger("edgepilot.vision")
@@ -55,6 +59,36 @@ _client = genai.Client(api_key=_GEMINI_API_KEY) if _GEMINI_API_KEY else None
 # even when the model claims evidence_visible=true. Guards against a model
 # that's technically "confident" but for the wrong reasons.
 _MIN_EVENT_CONFIDENCE = 0.6
+
+# --- Transient-failure resilience (503/5xx, per Gemini's own retry
+# guidance: bounded exponential backoff with jitter) -------------------
+#
+# Two layers, both bounded and both automatic:
+#
+# 1. Per-call retry: a single detect_event() call retries a transient
+#    5xx/connection error up to _MAX_RETRIES times with exponential
+#    backoff + jitter, capped at a few seconds total -- enough to ride
+#    out a brief blip without noticeably stalling the live camera's
+#    4-second polling loop.
+# 2. Circuit breaker: if _CONSECUTIVE_FAILURES_BEFORE_COOLDOWN calls in a
+#    row still fail after their own retries, every call for the next
+#    _COOLDOWN_SECONDS fails FAST with VisionUnavailableError -- no
+#    network call is attempted at all -- so a sustained Gemini outage
+#    doesn't turn every 4-second poll into 3 more retried Gemini calls.
+#    The next call after cooldown is a real "trial": success resets the
+#    breaker and resumes normal analysis automatically; failure re-enters
+#    cooldown. Process-memory only, matching services/dedup.py's existing
+#    single-process pattern -- resets on restart, not shared across
+#    workers, which is fine for this project's deployment shape.
+_MAX_RETRIES = 2
+_BASE_BACKOFF_SECONDS = 0.5
+_MAX_BACKOFF_SECONDS = 4.0
+
+_CONSECUTIVE_FAILURES_BEFORE_COOLDOWN = 3
+_COOLDOWN_SECONDS = 30.0
+
+_consecutive_failures = 0
+_cooldown_until = 0.0  # a time.monotonic() timestamp; 0.0 means "not in cooldown"
 
 _SYSTEM_PROMPT = (
     "You are the vision analysis engine inside EdgePilot AI, an industrial "
@@ -190,24 +224,101 @@ def _parse_objects(raw: object) -> list[DetectedObject]:
     return objects
 
 
+def _is_retryable(exc: Exception) -> bool:
+    """True for transient errors worth retrying: any 5xx from Gemini
+    (google.genai.errors.ServerError is raised specifically for 500-599
+    responses -- verified directly against the SDK, not guessed), plus
+    lower-level connection/timeout errors from the underlying HTTP
+    transport. Never retries a 4xx (ClientError) -- a bad request or an
+    auth problem will never succeed just by trying again, so retrying it
+    would only add latency to a guaranteed failure."""
+    return isinstance(exc, (genai_errors.ServerError, httpx.TransportError))
+
+
+def _call_gemini(image_bytes: bytes, mime_type: str):
+    return _client.models.generate_content(
+        model=_GEMINI_MODEL,
+        contents=[
+            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+            _SYSTEM_PROMPT,
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.2,
+        ),
+    )
+
+
+def _call_gemini_with_retry(image_bytes: bytes, mime_type: str):
+    """Up to _MAX_RETRIES retries (so _MAX_RETRIES + 1 attempts total) for
+    a transient 5xx/connection error, with exponential backoff + jitter --
+    per Gemini's own retry guidance, and bounded so this never turns into
+    an indefinite retry loop or a long stall of the live camera's polling
+    loop. A non-retryable error (4xx, or the final attempt) raises
+    immediately."""
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return _call_gemini(image_bytes, mime_type)
+        except Exception as exc:
+            last_exc = exc
+            if attempt == _MAX_RETRIES or not _is_retryable(exc):
+                raise
+            # Exponential backoff (0.5s, 1s, 2s, ... capped) with jitter
+            # (uniformly 50-100% of the computed delay) so many concurrent
+            # callers don't all retry in lockstep.
+            delay = min(_BASE_BACKOFF_SECONDS * (2**attempt), _MAX_BACKOFF_SECONDS)
+            delay *= 0.5 + random.random() * 0.5
+            logger.warning(
+                "Gemini call failed (attempt %d/%d, retryable): %s -- retrying in %.2fs",
+                attempt + 1, _MAX_RETRIES + 1, exc, delay,
+            )
+            time.sleep(delay)
+    raise last_exc  # pragma: no cover -- loop above always returns or raises
+
+
 def detect_event(image_bytes: bytes, mime_type: str) -> Detection:
     """Analyzes a real image with Gemini. Raises VisionUnavailableError if
-    Gemini isn't configured or the call fails -- never returns a guess."""
+    Gemini isn't configured, is in a post-outage cooldown (see the module
+    docstring above), or the call still fails after retries -- never
+    returns a guess."""
+    global _consecutive_failures, _cooldown_until
+
     if _client is None:
         raise VisionUnavailableError("Vision analysis is not configured (GEMINI_API_KEY is not set).")
 
-    try:
-        response = _client.models.generate_content(
-            model=_GEMINI_MODEL,
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                _SYSTEM_PROMPT,
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.2,
-            ),
+    now = time.monotonic()
+    if _cooldown_until > now:
+        remaining = _cooldown_until - now
+        raise VisionUnavailableError(
+            f"Vision analysis is temporarily unavailable after repeated errors; "
+            f"retrying automatically in {remaining:.0f}s."
         )
+
+    try:
+        response = _call_gemini_with_retry(image_bytes, mime_type)
+    except Exception as exc:
+        if _is_retryable(exc):
+            # Only a genuinely transient/service-level failure counts
+            # toward the breaker -- a malformed request or bad image
+            # (never retryable, see _is_retryable) doesn't mean Gemini
+            # itself is degraded, so it shouldn't trigger a cooldown.
+            _consecutive_failures += 1
+            if _consecutive_failures >= _CONSECUTIVE_FAILURES_BEFORE_COOLDOWN:
+                _cooldown_until = time.monotonic() + _COOLDOWN_SECONDS
+                logger.warning(
+                    "Gemini failed %d times in a row -- backing off for %.0fs before trying again.",
+                    _consecutive_failures, _COOLDOWN_SECONDS,
+                )
+        logger.exception("Gemini vision call failed.")
+        raise VisionUnavailableError(f"Vision analysis failed: {exc}") from exc
+
+    # A real response came back -- Gemini is healthy again. Resume normal
+    # analysis immediately, regardless of how many failures preceded this.
+    _consecutive_failures = 0
+    _cooldown_until = 0.0
+
+    try:
         data = json.loads(response.text)
         event_data = data["event"]
 
