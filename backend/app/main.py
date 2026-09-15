@@ -1,14 +1,27 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.database.database import init_db
-from app.routes import analysis, analytics, dashboard, health, incidents, live
-from app.services import llm, vision
+# Load backend/.env, if present, before any app module below reads
+# GEMINI_API_KEY / GROQ_API_KEY / etc. at import time -- vision.py and
+# llm.py each read their key once at module load, so this has to run
+# before the `app.routes`/`app.services` imports just below it. This
+# makes `python -m uvicorn app.main:app` work on its own; explicit
+# environment variables (a real shell export, `--env-file`, a production
+# secrets manager) still take priority, since override=False never lets
+# .env replace a value that's already set. Never logs key values -- only
+# whether each provider ends up configured (see the startup log below).
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
+
+from app.database.database import init_db  # noqa: E402
+from app.routes import analysis, analytics, dashboard, health, incidents, live, system  # noqa: E402
+from app.services import llm, vision  # noqa: E402
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -51,6 +64,7 @@ app.include_router(live.router, prefix="/api", tags=["Live"])
 app.include_router(incidents.router, prefix="/api", tags=["Incidents"])
 app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 app.include_router(analytics.router, prefix="/api", tags=["Analytics"])
+app.include_router(system.router, prefix="/api", tags=["System"])
 
 
 @app.exception_handler(Exception)
