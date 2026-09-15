@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import AnalysisResultCard from "@/components/analysis/AnalysisResultCard";
-import ProcessingState from "@/components/analysis/ProcessingState";
+import ProcessingState, { type ProcessingStage } from "@/components/analysis/ProcessingState";
 import UploadZone from "@/components/analysis/UploadZone";
 import Button from "@/components/common/Button";
 import ErrorState from "@/components/common/ErrorState";
@@ -14,16 +14,17 @@ export default function Analyze() {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [processingStage, setProcessingStage] = useState<ProcessingStage>("analyzing");
 
+  // The processing UI stays up for exactly as long as the real request is
+  // pending -- it's driven by analyzeInput's actual lifecycle (below), never
+  // by a fixed timer standing in for how long the AI pipeline "should" take.
   const startAnalysis = async () => {
     if (!file) return;
     setStage("processing");
-  };
-
-  const handleProcessingComplete = async () => {
-    if (!file) return;
+    setProcessingStage("analyzing");
     try {
-      const analysis = await analyzeInput(file);
+      const analysis = await analyzeInput(file, () => setProcessingStage("finalizing"));
       setResult(analysis);
       setStage("result");
     } catch (err) {
@@ -71,7 +72,7 @@ export default function Analyze() {
 
         {stage === "processing" && (
           <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <ProcessingState onComplete={handleProcessingComplete} />
+            <ProcessingState stage={processingStage} />
           </motion.div>
         )}
 

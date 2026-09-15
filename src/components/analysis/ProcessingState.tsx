@@ -1,31 +1,30 @@
 import { motion } from "framer-motion";
 import { Check, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
 
-const STEPS = [
-  "Input received",
-  "Visual data processed",
-  "Detecting events",
-  "Evaluating risk",
-  "Generating recommendation",
-];
+export type ProcessingStage = "analyzing" | "finalizing";
 
 interface ProcessingStateProps {
-  onComplete: () => void;
+  stage: ProcessingStage;
 }
 
-export default function ProcessingState({ onComplete }: ProcessingStateProps) {
-  const [activeStep, setActiveStep] = useState(0);
+type StepStatus = "done" | "active" | "pending";
 
-  useEffect(() => {
-    if (activeStep >= STEPS.length) {
-      const done = setTimeout(onComplete, 500);
-      return () => clearTimeout(done);
-    }
-    const id = setTimeout(() => setActiveStep((s) => s + 1), 480);
-    return () => clearTimeout(id);
-  }, [activeStep, onComplete]);
+// The backend runs vision, risk, and reasoning inside a single request/
+// response, so the client has no way to know when each one individually
+// finishes -- only that the /api/analyze call itself is still pending
+// ("analyzing"), or that it has genuinely returned and the follow-up
+// incident lookup is in flight ("finalizing"). These three rows are shown
+// together and only ever move from active -> done as a group, in lockstep
+// with real "finalizing" state -- never on a fixed timer.
+const STEPS: { key: string; label: string; status: (stage: ProcessingStage) => StepStatus }[] = [
+  { key: "upload", label: "Upload received", status: () => "done" },
+  { key: "vision", label: "Analyzing image/video with Gemini", status: (s) => (s === "finalizing" ? "done" : "active") },
+  { key: "risk", label: "Evaluating risk", status: (s) => (s === "finalizing" ? "done" : "active") },
+  { key: "reasoning", label: "Generating AI reasoning", status: (s) => (s === "finalizing" ? "done" : "active") },
+  { key: "complete", label: "Complete", status: (s) => (s === "finalizing" ? "active" : "pending") },
+];
 
+export default function ProcessingState({ stage }: ProcessingStateProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -54,10 +53,10 @@ export default function ProcessingState({ onComplete }: ProcessingStateProps) {
         </h3>
 
         <ul className="mt-6 w-full max-w-sm space-y-3">
-          {STEPS.map((step, i) => {
-            const status = i < activeStep ? "done" : i === activeStep ? "active" : "pending";
+          {STEPS.map((step) => {
+            const status = step.status(stage);
             return (
-              <li key={step} className="flex items-center gap-3">
+              <li key={step.key} className="flex items-center gap-3">
                 <span
                   className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
                     status === "done"
@@ -81,7 +80,7 @@ export default function ProcessingState({ onComplete }: ProcessingStateProps) {
                     status === "pending" ? "text-ink-faint" : "font-medium text-ink"
                   }`}
                 >
-                  {step}
+                  {step.label}
                 </span>
               </li>
             );
