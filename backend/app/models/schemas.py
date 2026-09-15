@@ -20,6 +20,20 @@ class HealthResponse(BaseModel):
     service: str
 
 
+# --- /api/system/status --------------------------------------------------
+
+
+class SystemStatusResponse(BaseModel):
+    """Non-secret configuration status for the Settings page. Never
+    includes key values -- only whether each provider is configured, the
+    same booleans vision.is_configured()/llm.is_configured() already
+    expose for the startup log."""
+
+    version: str
+    visionEnabled: bool
+    reasoningEnabled: bool
+
+
 # --- /api/analyze -----------------------------------------------------
 
 

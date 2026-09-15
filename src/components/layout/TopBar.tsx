@@ -1,4 +1,5 @@
 import { Bell, Menu, User } from "lucide-react";
+import { Link } from "react-router-dom";
 import StatusIndicator from "@/components/common/StatusIndicator";
 
 interface TopBarProps {
@@ -26,19 +27,23 @@ export default function TopBar({ title, description, onOpenMobileNav }: TopBarPr
 
       <div className="flex items-center gap-2 sm:gap-4">
         <StatusIndicator label="System Operational" tone="safe" className="hidden md:inline-flex" />
-        <button
-          aria-label="Notifications"
+        <Link
+          to="/incidents"
+          aria-label="View incidents"
+          title="View incidents"
           className="relative rounded-lg p-2 text-ink-dim transition-colors hover:bg-surface-2 hover:text-ink"
         >
           <Bell size={18} />
-          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-critical" />
-        </button>
-        <button
-          aria-label="User menu"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-2 text-ink-dim transition-colors hover:border-accent/50 hover:text-ink"
+        </Link>
+        {/* Decorative only -- there's no user account system in EdgePilot,
+            so this intentionally isn't a clickable menu with nothing behind
+            it. */}
+        <div
+          aria-hidden="true"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-2 text-ink-dim"
         >
           <User size={16} />
-        </button>
+        </div>
       </div>
     </header>
   );

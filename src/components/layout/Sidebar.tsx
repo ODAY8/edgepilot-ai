@@ -4,10 +4,11 @@ import {
   BarChart3,
   LayoutDashboard,
   ScanSearch,
-  Settings,
+  Settings as SettingsIcon,
   ShieldAlert,
   X,
 } from "lucide-react";
+import type { ComponentType } from "react";
 import { NavLink } from "react-router-dom";
 
 const NAV_ITEMS = [
@@ -17,9 +18,48 @@ const NAV_ITEMS = [
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
+const SYSTEM_ITEMS = [{ to: "/settings", label: "Settings", icon: SettingsIcon }];
+
 interface SidebarProps {
   mobileOpen: boolean;
   onCloseMobile: () => void;
+}
+
+interface SidebarNavItem {
+  to: string;
+  label: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+}
+
+function SidebarNavLink({ item, onClick }: { item: SidebarNavItem; onClick: () => void }) {
+  return (
+    <NavLink
+      to={item.to}
+      onClick={onClick}
+      className={({ isActive }) =>
+        `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-150 ${
+          isActive ? "text-ink" : "text-ink-dim hover:bg-surface-2 hover:text-ink"
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <motion.span
+              layoutId="sidebar-active"
+              className="absolute inset-0 rounded-lg border border-accent/30 bg-accent-soft"
+              transition={{ type: "spring", stiffness: 400, damping: 32 }}
+            />
+          )}
+          {isActive && (
+            <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_8px_rgba(91,124,250,0.9)]" />
+          )}
+          <item.icon size={17} className={`relative z-10 shrink-0 ${isActive ? "text-accent" : ""}`} />
+          <span className="relative z-10">{item.label}</span>
+        </>
+      )}
+    </NavLink>
+  );
 }
 
 export default function Sidebar({ mobileOpen, onCloseMobile }: SidebarProps) {
@@ -60,50 +100,15 @@ export default function Sidebar({ mobileOpen, onCloseMobile }: SidebarProps) {
 
         <nav className="flex-1 space-y-1 px-3 py-2" aria-label="Primary">
           {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onCloseMobile}
-              className={({ isActive }) =>
-                `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-150 ${
-                  isActive
-                    ? "text-ink"
-                    : "text-ink-dim hover:bg-surface-2 hover:text-ink"
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <motion.span
-                      layoutId="sidebar-active"
-                      className="absolute inset-0 rounded-lg border border-accent/30 bg-accent-soft"
-                      transition={{ type: "spring", stiffness: 400, damping: 32 }}
-                    />
-                  )}
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_8px_rgba(91,124,250,0.9)]" />
-                  )}
-                  <item.icon
-                    size={17}
-                    className={`relative z-10 shrink-0 ${isActive ? "text-accent" : ""}`}
-                  />
-                  <span className="relative z-10">{item.label}</span>
-                </>
-              )}
-            </NavLink>
+            <SidebarNavLink key={item.to} item={item} onClick={onCloseMobile} />
           ))}
 
           <p className="px-3 pb-1 pt-5 text-[10px] font-semibold uppercase tracking-widest text-ink-faint">
             System
           </p>
-          <button
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-dim transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
-            type="button"
-          >
-            <Settings size={17} className="shrink-0" />
-            Settings
-          </button>
+          {SYSTEM_ITEMS.map((item) => (
+            <SidebarNavLink key={item.to} item={item} onClick={onCloseMobile} />
+          ))}
         </nav>
 
         <div className="border-t border-border px-4 py-4">
