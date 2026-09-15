@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Analytics from "./Analytics";
+import Analytics from "./Insights";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import { getAnalyticsData } from "@/services/api";
 import type { AnalyticsData } from "@/services/api";

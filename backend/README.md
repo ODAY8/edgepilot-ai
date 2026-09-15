@@ -70,7 +70,7 @@ real analysis has run.
 | POST   | `/api/incidents/{incident_id}/acknowledge` | Mark an incident acknowledged             |
 | POST   | `/api/incidents/{incident_id}/escalate`    | Mark an incident escalated                |
 | GET    | `/api/dashboard/stats`               | Dashboard overview metrics                     |
-| GET    | `/api/analytics`                     | Chart data (events over time, risk mix, categories) |
+| GET    | `/api/insights`                      | Chart data (events over time, risk mix, categories) -- named to avoid ad-blocker filter lists that block paths containing "analytics" |
 
 ### `POST /api/analyze`
 

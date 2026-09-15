@@ -7,7 +7,10 @@ const Landing = lazy(() => importWithReload(() => import("@/pages/Landing")));
 const Dashboard = lazy(() => importWithReload(() => import("@/pages/Dashboard")));
 const Analyze = lazy(() => importWithReload(() => import("@/pages/Analyze")));
 const Incidents = lazy(() => importWithReload(() => import("@/pages/Incidents")));
-const Analytics = lazy(() => importWithReload(() => import("@/pages/Analytics")));
+// Filed as "Insights" (see src/pages/Insights.tsx) rather than "Analytics"
+// -- ad-blocker/privacy filter lists commonly block any request path
+// containing "analytics", which broke this exact route for real users.
+const Analytics = lazy(() => importWithReload(() => import("@/pages/Insights")));
 const Settings = lazy(() => importWithReload(() => import("@/pages/Settings")));
 
 function PageFallback() {

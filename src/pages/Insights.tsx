@@ -2,13 +2,18 @@ import { motion } from "framer-motion";
 import { Activity, Clock, HeartPulse, Server } from "lucide-react";
 import { useEffect, useState } from "react";
 import ChartCard from "@/components/common/ChartCard";
-import EventCategoriesChart from "@/components/analytics/EventCategoriesChart";
-import EventsOverTimeChart from "@/components/analytics/EventsOverTimeChart";
-import RiskDistributionChart from "@/components/analytics/RiskDistributionChart";
+import EventCategoriesChart from "@/components/insights/EventCategoriesChart";
+import EventsOverTimeChart from "@/components/insights/EventsOverTimeChart";
+import RiskDistributionChart from "@/components/insights/RiskDistributionChart";
 import ErrorState from "@/components/common/ErrorState";
 import { getAnalyticsData, type AnalyticsData } from "@/services/api";
 
-export default function Analytics() {
+// Named/filed as "Insights" rather than "Analytics" -- ad-blocker/privacy
+// extension filter lists commonly block any request path containing
+// "analytics", which broke this page's dynamic import for real users even
+// though the module itself was never broken. The visible page title,
+// route (/analytics), and all behavior are unchanged.
+export default function Insights() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [error, setError] = useState<string | null>(null);
 

@@ -94,7 +94,10 @@ interface BackendAnalyzeResponse {
   recommendation: { action: string; priority: string };
 }
 
-export async function analyzeInput(file: File): Promise<AnalysisResult> {
+// Called once the heavy /api/analyze request (vision + risk + reasoning)
+// has actually returned, before the quick incident-detail lookup below --
+// lets callers reflect real request lifecycle instead of a guessed timer.
+export async function analyzeInput(file: File, onAnalyzed?: () => void): Promise<AnalysisResult> {
   const form = new FormData();
   form.append("file", file);
 
@@ -102,6 +105,7 @@ export async function analyzeInput(file: File): Promise<AnalysisResult> {
     method: "POST",
     body: form,
   });
+  onAnalyzed?.();
 
   // The backend's persisted incident record carries the full detail
   // (detection/context/timestamp) that the terse /api/analyze response
@@ -165,5 +169,21 @@ export interface AnalyticsData {
 }
 
 export async function getAnalyticsData(): Promise<AnalyticsData> {
-  return apiFetch<AnalyticsData>("/api/analytics");
+  // Deliberately "/api/insights", not "/api/analytics" -- ad-blocker/
+  // privacy extension filter lists commonly block any request path
+  // containing "analytics", which broke this call for real users even
+  // though the backend was never at fault.
+  return apiFetch<AnalyticsData>("/api/insights");
+}
+
+// Non-secret configuration status for the Settings page -- never
+// includes key values, only whether each provider is configured.
+export interface SystemStatus {
+  version: string;
+  visionEnabled: boolean;
+  reasoningEnabled: boolean;
+}
+
+export async function getSystemStatus(): Promise<SystemStatus> {
+  return apiFetch<SystemStatus>("/api/system/status");
 }
