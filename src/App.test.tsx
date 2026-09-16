@@ -17,6 +17,25 @@ vi.mock("@/services/api", () => ({
   analyzeFrame: vi.fn(),
 }));
 
+// These route/navigation tests exercise page content behind protected
+// routes, not auth itself -- stub Supabase to resolve as an
+// already-signed-in session so AuthProvider settles immediately instead
+// of making a real network call to a Supabase project that doesn't exist
+// in the test environment.
+vi.mock("@/lib/supabase", () => ({
+  supabase: {
+    auth: {
+      getSession: vi.fn().mockResolvedValue({
+        data: { session: { user: { id: "test-user", email: "operator@edgepilot.test" } } },
+      }),
+      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } } as never)),
+      signOut: vi.fn().mockResolvedValue({ error: null }),
+      signInWithPassword: vi.fn(),
+      signUp: vi.fn(),
+    },
+  },
+}));
+
 const STATS: DashboardStats = {
   totalEvents: { value: 10, change: 0 },
   highRisk: { value: 2, change: 0 },

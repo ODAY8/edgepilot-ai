@@ -1,9 +1,12 @@
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import Layout from "@/components/layout/Layout";
+import { AuthProvider } from "@/context/AuthContext";
 import { importWithReload } from "@/lazyImport";
 
 const Landing = lazy(() => importWithReload(() => import("@/pages/Landing")));
+const Login = lazy(() => importWithReload(() => import("@/pages/Login")));
 const Dashboard = lazy(() => importWithReload(() => import("@/pages/Dashboard")));
 const Analyze = lazy(() => importWithReload(() => import("@/pages/Analyze")));
 const Incidents = lazy(() => importWithReload(() => import("@/pages/Incidents")));
@@ -24,19 +27,57 @@ function PageFallback() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<PageFallback />}>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route element={<Layout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/analyze" element={<Analyze />} />
-            <Route path="/incidents" element={<Incidents />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/settings" element={<Settings />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+      <AuthProvider>
+        <Suspense fallback={<PageFallback />}>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Login />} />
+            <Route element={<Layout />}>
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/analyze"
+                element={
+                  <ProtectedRoute>
+                    <Analyze />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/incidents"
+                element={
+                  <ProtectedRoute>
+                    <Incidents />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/analytics"
+                element={
+                  <ProtectedRoute>
+                    <Analytics />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                }
+              />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

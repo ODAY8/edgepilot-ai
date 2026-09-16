@@ -1,6 +1,7 @@
-import { Bell, Menu, User } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Bell, LogOut, Menu, User } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import StatusIndicator from "@/components/common/StatusIndicator";
+import { useAuth } from "@/context/AuthContext";
 
 interface TopBarProps {
   title: string;
@@ -9,6 +10,14 @@ interface TopBarProps {
 }
 
 export default function TopBar({ title, description, onOpenMobileNav }: TopBarProps) {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate("/login", { replace: true });
+  };
+
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-border bg-base/80 px-4 py-4 backdrop-blur-md sm:px-6 lg:px-8">
       <div className="flex items-center gap-3 min-w-0">
@@ -35,9 +44,19 @@ export default function TopBar({ title, description, onOpenMobileNav }: TopBarPr
         >
           <Bell size={18} />
         </Link>
-        {/* Decorative only -- there's no user account system in EdgePilot,
-            so this intentionally isn't a clickable menu with nothing behind
-            it. */}
+        {user?.email && (
+          <span className="hidden max-w-[10rem] truncate text-xs font-medium text-ink-faint md:inline">
+            {user.email}
+          </span>
+        )}
+        <button
+          onClick={handleLogout}
+          aria-label="Log out"
+          title="Log out"
+          className="rounded-lg p-2 text-ink-dim transition-colors hover:bg-surface-2 hover:text-ink"
+        >
+          <LogOut size={18} />
+        </button>
         <div
           aria-hidden="true"
           className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-2 text-ink-dim"
