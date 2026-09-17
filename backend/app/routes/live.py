@@ -10,7 +10,7 @@ a new incident (and a new Groq call) every 3-5 seconds.
 
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.database import database
 from app.models.schemas import (
@@ -23,6 +23,7 @@ from app.models.schemas import (
 )
 from app.services import dedup, llm, reasoning, recommendations, risk
 from app.services import vision as vision_service
+from app.services.auth import get_current_user_id
 from app.services.vision import VisionUnavailableError
 
 logger = logging.getLogger("edgepilot.live")
@@ -41,6 +42,7 @@ async def analyze_frame(
     file: UploadFile = File(..., description="A single captured frame (image) from a live browser camera feed"),
     camera_id: str | None = Form(None),
     location: str | None = Form(None),
+    user_id: str = Depends(get_current_user_id),
 ) -> LiveFrameResponse:
     if not file.content_type or not file.content_type.startswith(_ALLOWED_PREFIXES):
         raise HTTPException(status_code=400, detail="Frame must be an image.")
@@ -80,7 +82,7 @@ async def analyze_frame(
 
         # A meaningful event, but the same one is already being tracked for
         # this camera -- don't create a duplicate incident or call Groq again.
-        if not dedup.should_create_incident(resolved_camera_id, detection.type):
+        if not dedup.should_create_incident(user_id, resolved_camera_id, detection.type):
             logger.debug(
                 "Live frame: %s on %s within cooldown, skipping incident.", detection.type, resolved_camera_id
             )
@@ -106,6 +108,7 @@ async def analyze_frame(
         raise HTTPException(status_code=500, detail="Frame analysis pipeline failed.")
 
     incident = database.insert_incident(
+        user_id=user_id,
         event=detection.label,
         risk=risk_assessment.level,
         confidence=round(detection.confidence * 100),
@@ -116,7 +119,7 @@ async def analyze_frame(
         location=location,
         camera_id=resolved_camera_id,
     )
-    dedup.mark_incident_created(resolved_camera_id, detection.type)
+    dedup.mark_incident_created(user_id, resolved_camera_id, detection.type)
 
     logger.info(
         "Live frame created incident %s on %s (risk=%s, score=%d)",

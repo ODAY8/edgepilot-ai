@@ -22,6 +22,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 from app.database import database  # noqa: E402
 from app.routes import analysis, analytics, dashboard, health, incidents, live, system  # noqa: E402
 from app.services import llm, vision  # noqa: E402
+from app.services import auth as auth_service  # noqa: E402
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -48,6 +49,12 @@ async def lifespan(app: FastAPI):
     logger.info(
         "Groq reasoning: %s",
         "enabled" if llm.is_configured() else "disabled (falling back to template reasoning) -- set GROQ_API_KEY to enable",
+    )
+    logger.info(
+        "Supabase auth verification: %s",
+        "enabled"
+        if auth_service.is_configured()
+        else "DISABLED -- every user-scoped endpoint will return 401 until SUPABASE_URL/SUPABASE_ANON_KEY are set",
     )
     yield
     database.close_pool()

@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.database import database
 from app.models.schemas import (
@@ -13,6 +13,7 @@ from app.models.schemas import (
 )
 from app.services import llm, reasoning, recommendations, risk
 from app.services import vision as vision_service
+from app.services.auth import get_current_user_id
 from app.services.frame_extraction import FrameExtractionError, extract_frame
 from app.services.vision import VisionUnavailableError
 
@@ -33,6 +34,7 @@ async def analyze(
     file: UploadFile = File(..., description="Image or video captured from a camera / edge node"),
     location: str | None = Form(None),
     camera_id: str | None = Form(None),
+    user_id: str = Depends(get_current_user_id),
 ) -> AnalyzeResponse:
     if not file.content_type or not file.content_type.startswith(_ALLOWED_PREFIXES):
         raise HTTPException(status_code=400, detail="File must be an image or video.")
@@ -79,6 +81,7 @@ async def analyze(
         raise HTTPException(status_code=500, detail="Analysis pipeline failed.")
 
     incident = database.insert_incident(
+        user_id=user_id,
         event=detection.label,
         risk=risk_assessment.level,
         confidence=round(detection.confidence * 100),

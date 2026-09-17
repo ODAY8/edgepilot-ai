@@ -6,6 +6,7 @@ import type {
   RiskLevel,
   TimelinePoint,
 } from "@/data/types";
+import { supabase } from "@/lib/supabase";
 
 // Real backend integration (see backend/). Every export here keeps the
 // exact same signature and return shape it had as a mock, so this file
@@ -23,12 +24,38 @@ export class ApiError extends Error {
   }
 }
 
+// Every user-scoped backend endpoint verifies this token itself (see
+// backend/app/services/auth.py) and derives the caller's identity from
+// it -- the backend never trusts a user id supplied by the client. This
+// is the one place that reads the current Supabase session, so no
+// individual API call below has to remember to attach it itself.
+// supabase-js keeps the session in memory (backed by localStorage) and
+// refreshes it in the background, so this is just a fast local read, not
+// a network call.
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = { ...(await authHeaders()), ...(options.headers ?? {}) };
+
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, options);
+    response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   } catch {
     throw new ApiError("Cannot reach the EdgePilot backend. Is it running on port 8000?", 0);
+  }
+
+  if (response.status === 401) {
+    // The session is missing, expired, or was rejected by the backend --
+    // never usable again as-is. Signing out clears it locally and lets
+    // ProtectedRoute (which listens for this via AuthContext) redirect to
+    // /login on its own, instead of leaving the UI stuck retrying calls
+    // that will only ever fail the same way.
+    void supabase.auth.signOut();
+    throw new ApiError("Your session has expired. Please sign in again.", 401);
   }
 
   if (!response.ok) {
@@ -58,8 +85,14 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return apiFetch<DashboardStats>("/api/dashboard/stats");
 }
 
-export async function getIncidents(): Promise<Incident[]> {
-  return apiFetch<Incident[]>("/api/incidents");
+// `limit` is optional -- the Incidents page calls this with no limit
+// (it computes its own summary counts and filters across full history),
+// while the Dashboard passes a small limit since it only ever shows a
+// handful of recent incidents. Omitting it preserves the exact previous
+// behavior/response shape.
+export async function getIncidents(limit?: number): Promise<Incident[]> {
+  const query = limit ? `?limit=${limit}` : "";
+  return apiFetch<Incident[]>(`/api/incidents${query}`);
 }
 
 export async function getIncident(id: string): Promise<Incident | undefined> {
