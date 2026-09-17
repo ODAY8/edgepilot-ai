@@ -49,12 +49,23 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   }
 
   if (response.status === 401) {
-    // The session is missing, expired, or was rejected by the backend --
-    // never usable again as-is. Signing out clears it locally and lets
-    // ProtectedRoute (which listens for this via AuthContext) redirect to
-    // /login on its own, instead of leaving the UI stuck retrying calls
-    // that will only ever fail the same way.
-    void supabase.auth.signOut();
+    // The backend rejected this token -- expired, malformed, or (also
+    // seen in practice) the backend itself isn't configured to verify
+    // tokens at all. Either way, treat the local session as unusable and
+    // let ProtectedRoute (which listens for this via AuthContext)
+    // redirect to /login on its own, instead of leaving the UI stuck
+    // retrying calls that will only ever fail the same way.
+    //
+    // scope: "local" clears the session in this browser only, without
+    // calling Supabase's own /auth/v1/logout endpoint. That network call
+    // is unnecessary here (we're not asking Supabase to revoke the
+    // token, just forgetting it locally) and, in practice, can itself
+    // fail with a 403 if Supabase's own view of the session doesn't
+    // match what just happened -- which would otherwise surface as a
+    // second, confusing error on top of the real one. .catch() guards
+    // against that (or any other local sign-out failure) becoming an
+    // unhandled rejection.
+    void supabase.auth.signOut({ scope: "local" }).catch(() => {});
     throw new ApiError("Your session has expired. Please sign in again.", 401);
   }
 
